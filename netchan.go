@@ -5,6 +5,7 @@ package nats
 import (
 	"errors"
 	"reflect"
+	"time"
 )
 
 // This allows the functionality fo network channels by binding send and receive Go chans
@@ -78,7 +79,24 @@ func (c *EncodedConn) bindRecvChan(subject, queue string, channel interface{}) e
 		chVal.Send(oPtr)
 	}
 
-	_, err := c.Conn.subscribe(subject, queue, cb)
+	sub, err := c.Conn.subscribe(subject, queue, cb)
+	// Add a goroutine to check the chan is being closed
+	go func() {
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		for {
+			<-ticker.C
+			v, ok := chVal.Recv()
+			if ok {
+				// push data back
+				chVal.Send(v)
+			} else {
+				// the chann is closed, do unsubscribe
+				sub.Unsubscribe()
+				return
+			}
+		}
+	}()
 
 	return err
 }
